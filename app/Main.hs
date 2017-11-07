@@ -30,8 +30,8 @@ main = do
 
 initHostConnection :: GUI -> IO ()
 initHostConnection GUI{..} = do
-  msgDialog <- messageDialogNew Nothing [] MessageInfo ButtonsOk "Awaiting Connection"
-  dialogRun msgDialog
+  --msgDialog <- messageDialogNew Nothing [] MessageInfo ButtonsOk "Awaiting Connection"
+  --dialogRun msgDialog
 
   sock <- socket AF_INET Stream 0
   setSocketOption sock ReuseAddr 1
@@ -41,7 +41,8 @@ initHostConnection GUI{..} = do
   hdl <- socketToHandle sock' ReadWriteMode
   hSetBuffering hdl NoBuffering
   sendBtn `on` buttonActivated  $ sendMsg hdl msgEntry msgView
-  forkIO $ recieveThread hdl
+  buffer <- textViewGetBuffer msgView
+  forkIO $ recieveThread hdl buffer
   return ()
 
 initClientConnection :: GUI -> String -> IO ()
@@ -51,18 +52,26 @@ initClientConnection GUI{..} ipAddr = do
   connect sock (SockAddrInet 4242 addr)
   hdl <- socketToHandle sock ReadWriteMode
   sendBtn `on` buttonActivated  $ sendMsg hdl msgEntry msgView
-  forkIO $ recieveThread hdl
+  buffer <- textViewGetBuffer msgView
+  forkIO $ recieveThread hdl buffer
   return ()
 
-recieveThread :: Handle -> IO ()
-recieveThread hdl = forever $ hGetLine hdl >>= putStrLn
+appendToMessageBuffer :: TextBuffer -> String -> IO ()
+appendToMessageBuffer buffer msg = do
+  endItr <- textBufferGetEndIter buffer
+  textBufferInsert buffer endItr (msg ++ "\n")
+
+recieveThread :: Handle -> TextBuffer -> IO ()
+recieveThread hdl buffer = forever $ hGetLine hdl >>= appendToMessageBuffer buffer . prependSrc
+  where
+    prependSrc :: String -> String
+    prependSrc msg = "In: " ++ msg
 
 initialCallbacks :: GUI -> IO ()
 initialCallbacks gui@GUI{..} = do
   mainWin `on` deleteEvent $ quitApp
   hostBtn `on` menuItemActivated  $ initHostConnection gui
   clientBtn `on` menuItemActivated  $ initClientConnection gui "127.0.0.1"
-  --sendBtn `on` buttonActivated  $ sendMsg sockHdl msgEntry msgView
   return ()
 
 sendMsg :: Handle -> Entry -> TextView -> IO ()
@@ -70,6 +79,8 @@ sendMsg sockHdl entry view = do
   msg <- entryGetText entry
   entrySetText entry ""
   hPutStrLn sockHdl msg
+  buffer <- textViewGetBuffer view
+  appendToMessageBuffer buffer ("Sent: " ++ msg)
 
 loadGlade :: String -> IO GUI
 loadGlade gladeFP = do
