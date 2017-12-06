@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module FriedemMain where
 
@@ -8,8 +9,10 @@ import           FSM
 import           GUI
 import           Network.Socket
 import           System.IO
-import Graphics.UI.Gtk
-import Control.Monad
+import           Control.Monad
+import GI.Gtk (Entry, TextBuffer, TextView, textViewGetBuffer, entryGetText, entrySetText, textBufferGetEndIter, textBufferInsert)
+import qualified Data.Text as T 
+import qualified Data.Text.IO as T
 
 friedemMain :: TChan ClientEvent -> GUI -> FSM ClientState ClientEvent
 friedemMain evtQ gui@GUI{..} Disconnected SendButtonPressed = return Disconnected
@@ -39,18 +42,18 @@ friedemMain evtQ gui@GUI{..} (ConnectedClient hdl) SendButtonPressed = do
   return $ ConnectedHost hdl
 
 recieveThread :: Handle -> TextBuffer -> IO ()
-recieveThread hdl buffer = forever $ hGetLine hdl >>= appendToMessageBuffer buffer . prependSrc
+recieveThread hdl buffer = forever $ T.hGetLine hdl >>= appendToMessageBuffer buffer . prependSrc
   where
-    prependSrc :: String -> String
-    prependSrc msg = "In: " ++ msg
+    prependSrc :: T.Text -> T.Text
+    prependSrc msg = T.append "In: " msg
 
 sendMsg :: Handle -> Entry -> TextView -> IO ()
 sendMsg hdl entry view = do
   msg <- entryGetText entry
   entrySetText entry ""
-  hPutStrLn hdl msg
+  T.hPutStrLn hdl msg
   buffer <- textViewGetBuffer view
-  appendToMessageBuffer buffer ("Sent: " ++ msg)
+  appendToMessageBuffer buffer (T.append "Sent: " msg)
 
 hostNetworkThread :: TChan ClientEvent -> IO ()
 hostNetworkThread evtQ = do
@@ -67,7 +70,8 @@ hostNetworkThread evtQ = do
   let sendEvent = atomically . writeTChan evtQ
   sendEvent $ ChatRequestRecv hdl
 
-appendToMessageBuffer :: TextBuffer -> String -> IO ()
+appendToMessageBuffer :: TextBuffer -> T.Text -> IO ()
 appendToMessageBuffer buffer msg = do
   endItr <- textBufferGetEndIter buffer
-  textBufferInsert buffer endItr (msg ++ "\n")
+  let msg' = T.append msg "\n"
+  textBufferInsert buffer endItr msg' (fromIntegral (T.length msg'))
